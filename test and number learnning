@@ -1,0 +1,361 @@
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/opencv.hpp>
+#include <vector>
+#include <opencv2/ml/ml.hpp>
+#include <string>
+#include <iostream>
+#include <cstdio>
+#include <cstdlib>
+#include <highgui.h>
+
+using namespace std;
+using namespace cv;
+using namespace ml;
+
+
+
+void reset(Mat &output)
+{
+	Mat outputl = (Mat_<float>(1, 10) << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	for (int i = 0; i < 50; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 1, 0, 0, 0, 0, 0, 0, 0, 0);
+	for (int i = 50; i<100; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+	for (int i = 100; i<150; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 1, 0, 0, 0, 0, 0, 0);
+	for (int i = 150; i<200; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 1, 0, 0, 0, 0, 0);
+	for (int i = 200; i<250; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 0, 1, 0, 0, 0, 0);
+	for (int i = 250; i<300; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+	for (int i = 300; i<350; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 0, 0, 0, 1, 0, 0);
+	for (int i = 350; i<400; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
+	for (int i = 400; i<450; i++)
+		outputl.copyTo(output.row(i));
+	outputl = (Mat_<float>(1, 10) << 0, 0, 0, 0, 0, 0, 0, 0, 0, 1);
+	for (int i = 450; i<500; i++)
+		outputl.copyTo(output.row(i));
+}
+
+float sumMatValue(const Mat &img)//遍历整张图片有几个像素点
+{
+	float Value = 0;
+	int r = img.rows;
+	int c = img.cols*img.channels();
+	for (int i = 0; i < r; i++)
+	{
+		const uchar *linePtr = img.ptr<uchar>(i);
+		for (int j = 0; j < c; j++)
+		{
+			Value += linePtr[j];
+		}
+	}
+	return Value;
+}
+
+void sumMatsingle(const Mat &img,vector<int> &feat)//遍历得到图像所有像素的灰度信息
+{
+	int r = img.rows;
+	int c = img.cols*img.channels();
+	for (int i = 0; i < r; i++)
+	{
+		const uchar *linePtr = img.ptr<uchar>(i);
+		for (int j = 0; j < c; j++)
+		{
+			feat.push_back(linePtr[j]);
+		}
+	}
+}
+
+void ImgFilter2d(const Mat &image, Mat &result)//滤波操作
+{
+	result.create(image.size(), image.type());
+	int imager = image.rows;
+	int imagec = image.cols*image.channels();
+	for (int i = 1; i < imager - 1; i++)
+	{
+		const uchar *up = image.ptr<uchar>(i - 1);
+		const uchar *down = image.ptr<uchar>(i + 1);
+		const uchar *mid = image.ptr<uchar>(i);
+		uchar *now = result.ptr<uchar>(i);
+		for (int j = 1; j < imagec - 1; j++)
+		{
+			now[j] = saturate_cast<uchar>(5 * mid[j] - mid[j - 1] - mid[j + 1] - up[j] - down[j]);
+
+		}
+	}
+	result.row(0).setTo(Scalar(0));
+	result.row(result.rows - 1).setTo(Scalar(0));
+	result.col(0).setTo(Scalar(0));
+	result.col(result.cols - 1).setTo(Scalar(0));
+}
+
+void Sobel(const Mat &img,vector<float> &feat)//横纵向滤波特征值
+{
+	float mask[3][3] = { {-1,0,1},{-2,0,2},{-1,0,1} };
+	Mat x_mask = Mat(3, 3, CV_32F, mask)/8;
+	Mat y_mask = x_mask.t();
+	Mat sobelX, sobelY;
+	filter2D(img, sobelX, CV_32F, x_mask);
+	filter2D(img, sobelY, CV_32F, y_mask);
+	sobelX = abs(sobelX);
+	sobelY = abs(sobelY);
+	//imshow("sobelx", sobelX);
+	//imshow("sobely", sobelY);
+	float MatValueX = sumMatValue(sobelX);
+	float MatValueY = sumMatValue(sobelY);
+	for (int i = 0; i < img.rows; i = i + 4)
+	{
+		for (int j = 0; j < img.cols; j = j + 4)
+		{
+			Mat graysumX = sobelX(Rect(j, i, 4, 4));
+			Mat graysumY = sobelY(Rect(j, i, 4, 4));
+			feat.push_back(sumMatValue(graysumX) / MatValueX);
+			feat.push_back(sumMatValue(graysumY) / MatValueY);
+
+		}
+	}
+}
+
+
+void getfeature(Mat &input, const Mat &iimg, int o)
+{
+	Mat inputl(1, 48, CV_32FC1);
+	//cout << filenames[i] << endl;
+	Mat img = iimg;
+	//图像灰度化(二值化)
+	//cvtColor(img, img, CV_RGB2GRAY);
+	//threshold(img, img, 90, 255, THRESH_BINARY);
+	//图像大小归一化16*8
+	resize(img, img, Size(8, 16));
+	//对图像进行纵向横向滤波(第一个特征）
+	vector<float> different1;
+	Sobel(img, different1);
+	int i = 0;
+	for (i; i < different1.size(); i++)
+	{
+		inputl.at<Vec<float, 1>>(i) = different1[i];
+	}
+	//第二个简单特征各像素点灰度
+	resize(img, img, Size(4, 8));
+	vector<int> different2;
+	sumMatsingle(img, different2);
+	int ii = i;
+	for (ii; ii - i < different2.size(); ii++)
+	{
+		inputl.at<Vec<float, 1>>(ii) = different2[ii - i];
+	}
+	inputl.copyTo(input.row(o));
+
+}
+
+void cuttest(Mat &img,Mat &roi)
+{
+    int imgrows = img.rows;
+	int imgcols = img.cols*img.channels();
+	//freopen("D:\\answer.txt", "w", stdout);
+	int pervalue;
+	int *www = new int[imgcols];
+	memset(www, 0, imgcols * 4);
+	int *hhh = new int[imgrows];
+	memset(hhh, 0, imgrows * 4);
+	for (int i = 0; i < imgcols; i++)
+	{
+		for (int j = 0; j < imgrows; j++)
+		{
+			
+			//waitKey();
+			pervalue = img.at<uchar>(j,i);
+			if (pervalue == 255)
+			{
+				www[i]++;
+				hhh[j]++;
+			}
+			
+		}
+		
+	}
+	Mat roil;
+	int startin = 0;
+	int endout = imgcols-1;
+	bool inin = false;
+	for (int i = 0; i < imgcols; i++)
+	{
+		if (!inin && www[i] != 0)
+		{
+			inin = true;
+			startin = i;
+		}
+		if (www[i] == 0 && inin)
+		{
+			endout = i;
+			inin = false;
+			roil = img(Range(0, imgrows), Range(startin, endout + 1));
+			break;
+		}
+	}
+	roil = img(Range(0, imgrows), Range(startin, endout + 1));
+	startin = 0;
+	endout = imgrows-1;
+	inin = false;
+	for (int i = 0; i < imgrows; i++)
+	{
+		if (!inin && hhh[i] != 0)
+		{
+			inin = true;
+			startin = i;
+		}
+		if (hhh[i] == 0 && inin)
+		{
+			endout = i;
+			inin = false;
+			roi = roil(Range(startin, endout + 1), Range(0, roil.cols));
+			break;
+		}
+	}
+	roi = roil(Range(startin, endout + 1), Range(0, roil.cols));
+
+	//fclose(stdout);
+}
+
+int main()
+{
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*  ANN做图像识别训练
+int main()
+{
+	Mat img;
+
+	freopen("D:\\c++\\charsamples\\charSamples\\0\\test.txt", "r", stdin);
+	vector<string> filenames;
+	string ls;
+	
+	//output初始化
+	Mat output(500, 10, CV_32FC1);
+	reset(output);
+
+	//imshow("output",output);
+	while (getline(cin, ls))
+		filenames.push_back(ls);
+	
+	//图像特征提取存为input
+	Mat input(500, 48, CV_32FC1);
+	for (int o = 0; o < filenames.size(); o++)
+	{
+		img = imread(filenames[o],0);
+		//cout << img.channels() << endl;
+		getfeature(input, img, o);
+	}
+	fclose(stdin);
+
+	//对训练参数进行配置
+	int x1, x2, x3;
+	x1 = 48, x2 = 48, x3 = 10;
+	Ptr<ANN_MLP> bp = ANN_MLP::create();
+	Mat layerSizes = (Mat_<int>(1, 3) << x1, x2, x3);
+	bp->setLayerSizes(layerSizes);
+	bp->setActivationFunction(ANN_MLP::SIGMOID_SYM, 0, 0);
+	bp->setTermCriteria(TermCriteria(TermCriteria::MAX_ITER + TermCriteria::EPS, 5000, 0.01));
+	bp->setTrainMethod(ANN_MLP::BACKPROP, 0.001);
+	Ptr<TrainData>tData = TrainData::create(input, ROW_SAMPLE, output);
+	bp->train(tData);
+	
+
+	//对测试图像进行处理
+	Mat tinput(1, 48, CV_32FC1);
+	img = imread("D:\\c++\\charsamples\\charSamples\\3.png",0);
+	//cvtColor(img, img, CV_BGR2GRAY);
+	threshold(img, img, 90, 255, THRESH_BINARY);
+	bitwise_not(img, img);
+	//imshow("ri", img); waitKey();
+	//cout << img.channels() << endl;
+	Mat timg;
+	//imshow("2", img);
+	cuttest(img, timg);
+	GaussianBlur(img, img, Size(5, 5), 1.5);//高斯模糊
+	//imshow("1", timg); waitKey();
+	getfeature(tinput, timg, 0);
+
+	//对测试图像进行判断
+	Mat responseMat(1,10,CV_64FC1);
+	float response = bp->predict(tinput,responseMat);
+	int tt; 
+	float u1;
+	float u2 = -999;
+	Point maxLoc;
+	minMaxLoc(responseMat, NULL, NULL, NULL, &maxLoc);
+	tt = maxLoc.x;
+	for (int i = 0; i < 10; i++)
+	{
+		cout << responseMat.at<Vec<float, 1>>(i) << endl;
+	}
+	cout << tt << endl;
+	system("pause");
+	imshow("1", responseMat);waitKey();
+	return 0;
+}
+*/
+
+
+
+	/*色调滤波
+	Mat newimg;
+	newimg.create(img.size(), img.type());
+	ImgFilter2d(img, newimg);
+	imshow("色调加强滤波", newimg);
+	*/
+
+	/*
+	canny提取图像轮廓
+	Mat test1,test2,test3;
+	Canny(img, test1, 128, 250);
+	Canny(img, test2, 128, 400);
+	Canny(img, test3, 250, 400);
+	threshold(test1, test1, 128, 255, THRESH_BINARY);
+	threshold(test2, test2, 128, 255, THRESH_BINARY);
+	threshold(test3, test3, 128, 255, THRESH_BINARY);
+	*/
+
+	/*
+	imshow("test1", test1);
+	imshow("test2", test2);
+	imshow("test3", test3);
+	*/
+
+
+
+//bitwise_not  二值图像翻转
